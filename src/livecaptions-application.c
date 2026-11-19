@@ -98,8 +98,6 @@ static void livecaptions_application_activate(GApplication *app) {
         asr_thread_set_main_window(self->asr, lc_window);
 
         asr_thread_set_text_stream_active(self->asr, g_settings_get_boolean(self->settings, "text-stream-active"));
-        
-        gtk_label_set_text(lc_window->label, " \n ");
 
         self->window = lc_window;
     }

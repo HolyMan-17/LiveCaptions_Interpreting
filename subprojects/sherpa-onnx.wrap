@@ -1,0 +1,5 @@
+[wrap-git]
+url = https://github.com/k2-fsa/sherpa-onnx
+revision = v1.13.8
+depth = 1
+method = cmake

@@ -23,13 +23,16 @@
 #include <adwaita.h>
 
 struct _LiveCaptionsWindow;
+struct asr_engine_ops;
 
 struct asr_thread_i;
 typedef struct asr_thread_i * asr_thread;
 
 
-asr_thread create_asr_thread(const char *model_path);
+asr_thread create_asr_thread(void);
+asr_thread create_asr_thread_for_engine(const struct asr_engine_ops *ops, const char *model_path);
 bool asr_thread_update_model(asr_thread thread, const char *model_path);
+bool asr_thread_update_model_for_engine(asr_thread thread, const struct asr_engine_ops *ops, const char *model_path);
 bool asr_thread_is_errored(asr_thread thread);
 void asr_thread_set_main_window(asr_thread thread, struct _LiveCaptionsWindow *window);
 void asr_thread_enqueue_audio(asr_thread thread, short *data, size_t num_shorts);
@@ -39,4 +42,5 @@ void asr_thread_pause(asr_thread thread, bool pause);
 void asr_thread_set_text_stream_active(asr_thread thread, bool active);
 int asr_thread_samplerate(asr_thread thread);
 void asr_thread_flush(asr_thread thread);
+void asr_thread_clear_transcript(asr_thread thread);
 void free_asr_thread(asr_thread thread);

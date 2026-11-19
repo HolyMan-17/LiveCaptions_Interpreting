@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gtk/gtk.h>
+#include <glib.h>
 
 struct _LiveCaptionsWindow {
     GtkApplicationWindow  parent_instance;
@@ -32,20 +33,34 @@ struct _LiveCaptionsWindow {
     GtkBox           *side_box;
     GtkBox           *side_box_tiny;
     GtkToggleButton  *mic_button;
-    GtkLabel         *label;
+    GtkScrolledWindow *scroller;
+    GtkTextView      *text;
+
+    GtkTextBuffer *buffer;
+
+    // Marks the start of the in-progress (rewritable) tail of the transcript
+    GtkTextMark *tail_start;
+    GtkTextMark *scroll_end_mark;
+
+    GtkAdjustment *vadjustment;
+    bool follow;         // keep the view scrolled to the newest text
+    bool scroll_pending; // a programmatic scroll-to-end is in progress
+
+    // Cached, quantized fade tags (indexed by alpha bucket)
+    GtkTextTag *fade_tags[32];
 
     GtkCssProvider *css_provider;
+    GtkCssProvider *font_css_provider;
+
+    int line_height;
 
     bool slow_warning_shown;
     GtkWidget *too_slow_warning;
     time_t slow_time;
-    
+    guint warning_timeout_id;
+
     GtkWidget *slow_warning;
     GtkWidget *slowest_warning;
-
-    volatile PangoLayout *font_layout;
-    volatile size_t font_layout_counter;
-    volatile int max_text_width;
 
     gboolean was_errored;
 };
@@ -57,5 +72,11 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (LiveCaptionsWindow, livecaptions_window, LIVECAPTIONS, WINDOW, GtkApplicationWindow);
 
 void livecaptions_window_warn_slow(LiveCaptionsWindow *self);
+
+// Applies a transcript edit on the main thread; op is a transcript_apply_op,
+// segments is a GPtrArray of struct transcript_applied_segment (may be NULL)
+void livecaptions_window_apply_transcript(LiveCaptionsWindow *self, int op, GPtrArray *segments);
+
+GtkTextBuffer *livecaptions_window_get_buffer(LiveCaptionsWindow *self);
 
 G_END_DECLS

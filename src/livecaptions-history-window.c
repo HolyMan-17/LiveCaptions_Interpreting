@@ -18,7 +18,6 @@
 
 #include <ctype.h>
 #include <glib/gi18n.h>
-#include <april_api.h>
 #include <adwaita.h>
 #include "livecaptions-history-window.h"
 #include "history.h"
@@ -85,7 +84,8 @@ static void add_text(LiveCaptionsHistoryWindow *self, char *text, bool is_text) 
     GtkWidget *label = gtk_label_new(text);
 
     if(is_text){
-        PangoFontDescription *desc = pango_font_description_from_string(g_settings_get_string(self->settings, "font-name"));
+        g_autofree char *font_name = g_settings_get_string(self->settings, "font-name");
+        PangoFontDescription *desc = pango_font_description_from_string(font_name);
         PangoAttribute *attr_font = pango_attr_font_desc_new(desc);
         PangoAttrList *attr = gtk_label_get_attributes(GTK_LABEL(label));
         if(attr == NULL){
@@ -146,7 +146,7 @@ static void add_session(LiveCaptionsHistoryWindow *self, const struct history_se
         } else {
             GString *entry_text = g_string_new(NULL);
 
-            if(entry->tokens[0].flags & APRIL_TOKEN_FLAG_WORD_BOUNDARY_BIT) {
+            if(entry->tokens[0].flags & ASR_TOKEN_FLAG_WORD_BOUNDARY) {
                 tcap.previous_was_period = true;
             }
 
@@ -154,7 +154,7 @@ static void add_session(LiveCaptionsHistoryWindow *self, const struct history_se
                 size_t skipahead = 1;
                 const char *token = entry->tokens[j].token;
 
-                if((filter_mode > FILTER_NONE) && (entry->tokens[j].flags & APRIL_TOKEN_FLAG_WORD_BOUNDARY_BIT)) {
+                if((filter_mode > FILTER_NONE) && (entry->tokens[j].flags & ASR_TOKEN_FLAG_WORD_BOUNDARY)) {
                     size_t skip = get_filter_skip_history(entry->tokens, j, entry->tokens_count, filter_mode);
                     if(skip > 0) {
                         skipahead = skip;

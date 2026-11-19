@@ -43,6 +43,9 @@ struct _LiveCaptionsSettings {
     GtkScale *line_width_scale;
     GtkAdjustment *line_width_adjustment;
 
+    AdwSpinRow *line_count_row;
+    GtkAdjustment *line_count_adjustment;
+
     GtkScale *window_transparency_scale;
     GtkAdjustment *window_transparency_adjustment;
 
@@ -51,6 +54,12 @@ struct _LiveCaptionsSettings {
 
     AdwPreferencesGroup *models_list;
     GtkCheckButton *radio_button_1;
+    AdwActionRow *builtin_row;
+    AdwComboRow *engine_row;
+    GPtrArray *model_rows;
+
+    /* Guard against re-entrant engine-row changes while reverting */
+    bool updating_engine;
 
     GtkFileFilter *file_filter;
 };

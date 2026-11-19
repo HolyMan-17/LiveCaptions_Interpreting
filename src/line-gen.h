@@ -1,6 +1,6 @@
 /* line-gen.h
- * This file contains the declaration for line_generator, which generates
- * two lines based on AprilTokens from aprilasr
+ * This file contains the declaration for token_capitalizer, which tracks
+ * whether tokens should be capitalized based on sentence structure.
  *
  * Copyright 2022 abb128
  *
@@ -21,13 +21,7 @@
 #pragma once
 
 #include <stddef.h>
-#include <stdint.h>
-#include <sys/types.h>
-#include <april_api.h>
-#include <adwaita.h>
-
-#define AC_LINE_MAX 4096
-#define AC_LINE_COUNT 2
+#include <stdbool.h>
 
 struct token_capitalizer {
     bool is_english;
@@ -41,40 +35,3 @@ void token_capitalizer_init(struct token_capitalizer *tc);
 bool token_capitalizer_next(struct token_capitalizer *tc, const char *token, int flags, const char *subsequent_token, int subsequent_flags);
 void token_capitalizer_finish(struct token_capitalizer *tc);
 void token_capitalizer_rewind(struct token_capitalizer *tc);
-
-
-struct line {
-    char text[AC_LINE_MAX];
-
-    size_t start_head;
-    size_t start_len;
-
-    size_t head;
-    size_t len;
-};
-
-struct line_generator {
-    size_t current_line;
-    struct line lines[AC_LINE_COUNT];
-
-    // Denotes the index within the active token array at which the line starts
-    // If -1, means the active tokens don't reach that line yet
-    ssize_t active_start_of_lines[AC_LINE_COUNT];
-
-    char output[AC_LINE_MAX * AC_LINE_COUNT];
-    char plaintext[AC_LINE_MAX * AC_LINE_COUNT];
-
-    PangoLayout *layout;
-    int max_text_width;
-
-    bool is_english;
-    struct token_capitalizer tcap;
-};
-
-void line_generator_init(struct line_generator *lg);
-void line_generator_update(struct line_generator *lg, size_t num_tokens, const AprilToken *tokens);
-void line_generator_finalize(struct line_generator *lg);
-void line_generator_break(struct line_generator *lg);
-void line_generator_set_text(struct line_generator *lg, GtkLabel *lbl);
-void line_generator_set_language(struct line_generator *lg, const char* language);
-const char *line_generator_get_plaintext(struct line_generator *lg);

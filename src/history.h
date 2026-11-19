@@ -22,8 +22,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
-#include <april_api.h>
 #include <adwaita.h>
+
+#include "asr-token.h"
 
 #define HISTORY_TOKEN_MAX_CHARS 32
 #define HISTORY_MAX_TOKENS 256
@@ -35,7 +36,7 @@ extern char *default_history_file;
 struct history_token {
     char token[HISTORY_TOKEN_MAX_CHARS]; // should this be a dynamic array?
     float logprob;
-    AprilTokenFlagBits flags;
+    int flags;
 };
 
 // A single history entry containing a collection of tokens
@@ -65,7 +66,7 @@ struct past_history_sessions {
 void history_init(void);
 
 // Every time finalized, commit to list of history_entry
-void commit_tokens_to_current_history(const AprilToken *tokens,
+void commit_tokens_to_current_history(const struct asr_token *tokens,
                                       size_t tokens_count);
 
 

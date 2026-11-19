@@ -26,6 +26,7 @@
 #include "history.h"
 #include "livecaptions-history-window.h"
 #include "asrproc.h"
+#include "asr-engine.h"
 
 G_DEFINE_TYPE(LiveCaptionsSettings, livecaptions_settings, ADW_TYPE_PREFERENCES_WINDOW)
 
@@ -145,6 +146,34 @@ static const char *get_always_on_top_tip_text(){
     }
 }
 
+static bool engine_is_sherpa(void) {
+    bool sherpa = false;
+    GSettings *settings = g_settings_new("net.sapples.LiveCaptions");
+    char *engine = g_settings_get_string(settings, "active-engine");
+    sherpa = (engine != NULL) && g_str_equal(engine, "sherpa-onnx");
+    g_free(engine);
+    g_object_unref(G_OBJECT(settings));
+    return sherpa;
+}
+
+static const struct asr_engine_ops *settings_engine_ops(LiveCaptionsSettings *self) {
+    char *engine = g_settings_get_string(self->settings, "active-engine");
+    const struct asr_engine_ops *ops = asr_engine_lookup(engine);
+    g_free(engine);
+    return ops;
+}
+
+static const char *settings_installed_models_key(LiveCaptionsSettings *self) {
+    (void)self;
+    return engine_is_sherpa() ? "sherpa-installed-models" : "installed-models";
+}
+
+static const char *settings_active_model_key(LiveCaptionsSettings *self) {
+    (void)self;
+    return engine_is_sherpa() ? "sherpa-active-model" : "active-model";
+}
+
+static void on_engine_changed(AdwComboRow *row, GParamSpec *pspec, LiveCaptionsSettings *self);
 
 static void on_add_model_response(GtkNativeDialog *native,
                                   int        response,
@@ -155,6 +184,9 @@ static void add_model_cb(LiveCaptionsSettings *self) {
     GtkFileChooser *chooser;
     GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
 
+    if(engine_is_sherpa())
+        action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
+
     native = gtk_file_chooser_native_new("Load Model",
                                          GTK_WINDOW(self),
                                          action,
@@ -162,7 +194,8 @@ static void add_model_cb(LiveCaptionsSettings *self) {
                                          _("_Cancel"));
 
     chooser = GTK_FILE_CHOOSER(native);
-    gtk_file_chooser_add_filter(chooser, self->file_filter);
+    if(!engine_is_sherpa())
+        gtk_file_chooser_add_filter(chooser, self->file_filter);
 
     gtk_native_dialog_show(GTK_NATIVE_DIALOG(native));
 
@@ -193,6 +226,9 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, line_width_scale);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, line_width_adjustment);
 
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, line_count_row);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, line_count_adjustment);
+
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, window_transparency_scale);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, window_transparency_adjustment);
 
@@ -201,6 +237,8 @@ static void livecaptions_settings_class_init(LiveCaptionsSettingsClass *klass) {
 
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, models_list);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, radio_button_1);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, builtin_row);
+    gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, engine_row);
     gtk_widget_class_bind_template_child (widget_class, LiveCaptionsSettings, file_filter);
 
     gtk_widget_class_bind_template_callback (widget_class, report_cb);
@@ -222,38 +260,52 @@ static gboolean deferred_update_keep_above(void *userdata) {
     return G_SOURCE_REMOVE;
 }
 
-static void model_load_failsafe(LiveCaptionsSettings *self, bool load_default);
+static void model_load_failsafe(LiveCaptionsSettings *self);
 static void on_model_selected(GtkCheckButton* button, LiveCaptionsSettings *self){
     if(!gtk_check_button_get_active(button)) return;
 
+    const struct asr_engine_ops *ops = settings_engine_ops(self);
     const char *model = g_quark_to_string((GQuark)g_object_get_data(G_OBJECT(button), "lcap-model-path"));
-    if(!asr_thread_update_model(self->application->asr, model)) {
-        model_load_failsafe(self, false);
+    if(!asr_thread_update_model_for_engine(self->application->asr, ops, model)) {
+        model_load_failsafe(self);
         return;
     }
 
-    g_settings_set_string(self->settings, "active-model", model);
+    g_settings_set_string(self->settings, settings_active_model_key(self), model);
 }
 
 static void on_builtin_toggled(LiveCaptionsSettings *self) {
+    if(engine_is_sherpa()) return;
     if(!gtk_check_button_get_active(self->radio_button_1)) return;
 
     const char *model_path = GET_MODEL_PATH();
-    asr_thread_update_model(self->application->asr, model_path);
+    asr_thread_update_model_for_engine(self->application->asr, &april_asr_ops, model_path);
     g_settings_set_string(self->settings, "active-model", model_path);
 }
 
 static void on_model_deleted(GtkButton *button, LiveCaptionsSettings *self) {
     const char *model = g_quark_to_string((GQuark)g_object_get_data(G_OBJECT(button), "lcap-model-path"));
-    if(g_str_equal(model, "/app/LiveCaptions/models/aprilv0_en-us.april")) return;
 
-    char *active_model = g_settings_get_string(self->settings, "active-model");
-    if(g_str_equal(model, active_model)) {
-        gtk_check_button_set_active(self->radio_button_1, true);
-        on_builtin_toggled(self);
+    if(!engine_is_sherpa() && g_str_equal(model, "/app/LiveCaptions/models/aprilv0_en-us.april")) return;
+
+    if(engine_is_sherpa()) {
+        // Sherpa has no built-in model; deleting the active one just
+        // unsets it (the in-memory model keeps running until a switch)
+        char *active_model = g_settings_get_string(self->settings, "sherpa-active-model");
+        if(g_str_equal(model, active_model))
+            g_settings_set_string(self->settings, "sherpa-active-model", "");
+        g_free(active_model);
+    } else {
+        char *active_model = g_settings_get_string(self->settings, "active-model");
+        if(g_str_equal(model, active_model)) {
+            gtk_check_button_set_active(self->radio_button_1, true);
+            on_builtin_toggled(self);
+        }
+        g_free(active_model);
     }
 
-    gchar **models = g_settings_get_strv(self->settings, "installed-models");
+    const char *list_key = settings_installed_models_key(self);
+    gchar **models = g_settings_get_strv(self->settings, list_key);
     GStrvBuilder *builder = g_strv_builder_new();
 
     for(int i=0; models[i] != NULL; i++){
@@ -265,13 +317,14 @@ static void on_model_deleted(GtkButton *button, LiveCaptionsSettings *self) {
 
     GStrv result = g_strv_builder_end(builder);
 
-    g_settings_set_strv(self->settings, "installed-models", (const gchar * const *)result);
+    g_settings_set_strv(self->settings, list_key, (const gchar * const *)result);
 
     g_strfreev(result);
     g_strv_builder_unref(builder);
 
     AdwActionRow *row = ADW_ACTION_ROW(gtk_widget_get_parent(gtk_widget_get_parent(gtk_widget_get_parent(GTK_WIDGET(button)))));
 
+    g_ptr_array_remove(self->model_rows, row);
     adw_preferences_group_remove(self->models_list, GTK_WIDGET(row));
 }
 
@@ -299,8 +352,8 @@ static void insert_model_to_list(LiveCaptionsSettings *self, gchar *model) {
 
     gtk_check_button_set_group(button, first);
 
-    char *active_model = g_settings_get_string(self->settings, "active-model");
-    if(g_str_equal(model, active_model)) {
+    char *active_model = g_settings_get_string(self->settings, settings_active_model_key(self));
+    if((active_model != NULL) && g_str_equal(model, active_model)) {
         gtk_check_button_set_active(button, true);
     }
 
@@ -313,10 +366,25 @@ static void insert_model_to_list(LiveCaptionsSettings *self, gchar *model) {
 
     g_object_set_data(G_OBJECT(delete_button), "lcap-model-path", quark);
     g_signal_connect(delete_button, "clicked", G_CALLBACK(on_model_deleted), self);
+
+    g_ptr_array_add(self->model_rows, row);
+}
+
+static void clear_models_list(LiveCaptionsSettings *self) {
+    for(guint i=0; i<self->model_rows->len; i++) {
+        GtkWidget *row = g_ptr_array_index(self->model_rows, i);
+        adw_preferences_group_remove(self->models_list, row);
+    }
+    g_ptr_array_set_size(self->model_rows, 0);
 }
 
 static void init_models_page(LiveCaptionsSettings *self) {
-    gchar **models = g_settings_get_strv(self->settings, "installed-models");
+    clear_models_list(self);
+
+    // The built-in row only applies to the april engine
+    gtk_widget_set_visible(GTK_WIDGET(self->builtin_row), !engine_is_sherpa());
+
+    gchar **models = g_settings_get_strv(self->settings, settings_installed_models_key(self));
 
     for(int i=0; models[i] != NULL; i++){
         gchar *model = models[i];
@@ -327,9 +395,13 @@ static void init_models_page(LiveCaptionsSettings *self) {
 }
 
 static void add_new_model(LiveCaptionsSettings *self, gchar *model) {
-    gchar **existing_models = g_settings_get_strv(self->settings, "installed-models");
+    const char *list_key = settings_installed_models_key(self);
+    gchar **existing_models = g_settings_get_strv(self->settings, list_key);
 
-    if(g_strv_contains((const gchar * const *)existing_models, model)) return;
+    if(g_strv_contains((const gchar * const *)existing_models, model)) {
+        g_strfreev(existing_models);
+        return;
+    }
 
     GStrvBuilder *builder = g_strv_builder_new();
     g_strv_builder_addv(builder, (const gchar **)existing_models);
@@ -337,36 +409,26 @@ static void add_new_model(LiveCaptionsSettings *self, gchar *model) {
 
     GStrv result = g_strv_builder_end(builder);
 
-    g_settings_set_strv(self->settings, "installed-models", (const gchar * const *)result);
+    g_settings_set_strv(self->settings, list_key, (const gchar * const *)result);
 
     g_strfreev(result);
     g_strv_builder_unref(builder);
+    g_strfreev(existing_models);
 }
 
-static void model_load_failsafe(LiveCaptionsSettings *self, bool load_default) {
+static void model_load_failsafe(LiveCaptionsSettings *self) {
     GtkDialogFlags flags = GTK_DIALOG_DESTROY_WITH_PARENT | GTK_DIALOG_MODAL;
     GtkWidget *dialog = gtk_message_dialog_new (GTK_WINDOW(self),
                                         flags,
                                         GTK_MESSAGE_ERROR,
                                         GTK_BUTTONS_CLOSE,
                                         "Failed to load model!");
-    
+
     gtk_window_present(GTK_WINDOW(dialog));
 
     g_signal_connect(dialog, "response",
                     G_CALLBACK (gtk_window_destroy),
                     NULL);
-    
-    char *prev_model;
-    if(load_default) {
-        prev_model = GET_MODEL_PATH();
-    }else{
-        prev_model = g_settings_get_string(self->settings, "active-model");
-    }
-
-    asr_thread_update_model(self->application->asr, prev_model);
-
-    if(load_default) gtk_check_button_set_active(self->radio_button_1, true);
 }
 
 static void on_add_model_response(GtkNativeDialog *native,
@@ -377,20 +439,23 @@ static void on_add_model_response(GtkNativeDialog *native,
         GtkFileChooser *chooser = GTK_FILE_CHOOSER(native);
 
         g_autoptr(GFile) file = gtk_file_chooser_get_file(chooser);
-        
+
         char *model = g_file_get_path(file);
 
+        const struct asr_engine_ops *ops = settings_engine_ops(self);
 
-        if(!asr_thread_update_model(self->application->asr, model)){
-            model_load_failsafe(self, false);
+        // Attempting the load validates the model (e.g. a sherpa-onnx
+        // directory must contain the required onnx + tokens files);
+        // on failure the previously working model keeps running
+        if(!asr_thread_update_model_for_engine(self->application->asr, ops, model)){
+            model_load_failsafe(self);
 
             g_free(model);
             g_object_unref(native);
             return;
         }
-        
-        g_settings_set_string(self->settings, "active-model", model);
 
+        g_settings_set_string(self->settings, settings_active_model_key(self), model);
 
         insert_model_to_list(self, model);
         add_new_model(self, model);
@@ -401,12 +466,80 @@ static void on_add_model_response(GtkNativeDialog *native,
     g_object_unref(native);
 }
 
+static void on_engine_changed(AdwComboRow *row, GParamSpec *pspec, LiveCaptionsSettings *self) {
+    (void)pspec;
+
+    if(self->updating_engine) return;
+
+    guint selected = adw_combo_row_get_selected(row);
+    const char *engine = (selected == 1) ? "sherpa-onnx" : "april";
+
+    char *prev = g_settings_get_string(self->settings, "active-engine");
+    if((prev != NULL) && g_str_equal(prev, engine)) {
+        g_free(prev);
+        return;
+    }
+
+    guint prev_index = ((prev != NULL) && g_str_equal(prev, "sherpa-onnx")) ? 1 : 0;
+    g_free(prev);
+
+    // sherpa needs a model loaded; april has the built-in fallback
+    if(selected == 1) {
+        char *model = g_settings_get_string(self->settings, "sherpa-active-model");
+        bool has_model = (model != NULL) && (model[0] != '\0');
+        g_free(model);
+
+        if(!has_model) {
+            GtkDialogFlags flags = GTK_DIALOG_DESTROY_WITH_PARENT | GTK_DIALOG_MODAL;
+            GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(self),
+                                        flags,
+                                        GTK_MESSAGE_INFO,
+                                        GTK_BUTTONS_CLOSE,
+                                        "Load a sherpa-onnx model first (Add button below)");
+
+            gtk_window_present(GTK_WINDOW(dialog));
+            g_signal_connect(dialog, "response", G_CALLBACK(gtk_window_destroy), NULL);
+
+            self->updating_engine = true;
+            adw_combo_row_set_selected(row, prev_index);
+            self->updating_engine = false;
+            return;
+        }
+    }
+
+    g_settings_set_string(self->settings, "active-engine", engine);
+
+    init_models_page(self);
+
+    const struct asr_engine_ops *ops = settings_engine_ops(self);
+    char *model = g_settings_get_string(self->settings, settings_active_model_key(self));
+    bool ok = (model != NULL) && (model[0] != '\0') &&
+              asr_thread_update_model_for_engine(self->application->asr, ops, model);
+    g_free(model);
+
+    if(!ok)
+        model_load_failsafe(self);
+}
+
 static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     gtk_widget_init_template(GTK_WIDGET(self));
+
+    self->model_rows = g_ptr_array_new();
+    self->updating_engine = false;
 
     adw_action_row_set_activatable_widget(self->font_button_ar, GTK_WIDGET(self->font_button));
 
     self->settings = g_settings_new("net.sapples.LiveCaptions");
+
+    // Reflect the configured engine in the selector
+    char *engine = g_settings_get_string(self->settings, "active-engine");
+    self->updating_engine = true;
+    adw_combo_row_set_selected(self->engine_row,
+        ((engine != NULL) && g_str_equal(engine, "sherpa-onnx")) ? 1 : 0);
+    self->updating_engine = false;
+    g_free(engine);
+
+    g_signal_connect(self->engine_row, "notify::selected", G_CALLBACK(on_engine_changed), self);
 
     g_settings_bind(self->settings, "text-uppercase", self->text_upper_switch, "active", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "fade-text", self->fade_text_switch, "active", G_SETTINGS_BIND_DEFAULT);
@@ -414,6 +547,7 @@ static void livecaptions_settings_init(LiveCaptionsSettings *self) {
     g_settings_bind(self->settings, "filter-slurs", self->filter_slurs_switch, "active", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "save-history", self->save_history_switch, "active", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "line-width", self->line_width_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
+    g_settings_bind(self->settings, "line-count", self->line_count_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "window-transparency", self->window_transparency_adjustment, "value", G_SETTINGS_BIND_DEFAULT);
     g_settings_bind(self->settings, "text-stream-active", self->text_stream_switch, "active", G_SETTINGS_BIND_DEFAULT);
 

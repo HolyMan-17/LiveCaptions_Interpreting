@@ -45,6 +45,12 @@
             <default>50</default>
         </key>
 
+        <key name="line-count" type="i">
+            <default>2</default>
+            <range min="2" max="16"/>
+            <summary>Number of text lines the captions window shows by default</summary>
+        </key>
+
         <key name="benchmark" type="d">
             <default>-1.0</default>
         </key>
@@ -67,6 +73,21 @@
         <key name="active-model" type="s">
             <default>'/app/LiveCaptions/models/aprilv0_en-us.april'</default>
             <summary>Currently active model</summary>
+        </key>
+
+        <key name="active-engine" type="s">
+            <default>'april'</default>
+            <summary>Currently active ASR engine</summary>
+        </key>
+
+        <key name="sherpa-installed-models" type="as">
+            <default>[]</default>
+            <summary>List of installed sherpa-onnx models</summary>
+        </key>
+
+        <key name="sherpa-active-model" type="s">
+            <default>''</default>
+            <summary>Currently active sherpa-onnx model</summary>
         </key>
 
         <key name="text-stream-active" type="b">

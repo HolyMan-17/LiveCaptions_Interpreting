@@ -66,7 +66,7 @@ static struct history_entry *allocate_new_entry(size_t tokens_count) {
     return entry;
 }
 
-void commit_tokens_to_current_history(const AprilToken *tokens,
+void commit_tokens_to_current_history(const struct asr_token *tokens,
                                       size_t tokens_count)
 {
     struct history_entry *entry = allocate_new_entry(tokens_count);
@@ -76,12 +76,12 @@ void commit_tokens_to_current_history(const AprilToken *tokens,
     for(size_t i=0; i<tokens_count; i++){
         struct history_token *token = &entry->tokens[i];
 
-        if(strlen(tokens[i].token) >= HISTORY_TOKEN_MAX_CHARS){
-            printf("Token %s is too long! (%d)\n", tokens[i].token, strlen(tokens[i].token));
+        if(strlen(tokens[i].text) >= HISTORY_TOKEN_MAX_CHARS){
+            printf("Token %s is too long! (%d)\n", tokens[i].text, strlen(tokens[i].text));
             g_assert(false);
         }
 
-        strcpy(&token->token[0], tokens[i].token);
+        strcpy(&token->token[0], tokens[i].text);
         token->logprob = tokens[i].logprob;
         token->flags   = tokens[i].flags;
     }

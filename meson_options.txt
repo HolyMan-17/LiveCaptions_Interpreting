@@ -1,0 +1,2 @@
+option('onnxruntime_libdir', type: 'string', value: '',
+       description: 'Directory containing libonnxruntime for runtime linking (added to the binary rpath)')

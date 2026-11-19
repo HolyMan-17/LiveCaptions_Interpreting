@@ -20,9 +20,9 @@
 #include "livecaptions-welcome.h"
 #include "livecaptions-application.h"
 #include "audiocap.h"
+#include "asr-engine.h"
 #include "common.h"
 
-#include <april_api.h>
 #include <stdio.h>
 #include <time.h>
 #include <sys/time.h>
@@ -35,9 +35,9 @@ uint64_t get_time_us(void) {
 
 
 static void benchmark_dummy_handler(G_GNUC_UNUSED void* _userdata,
-                                    G_GNUC_UNUSED AprilResultType _result,
+                                    G_GNUC_UNUSED enum asr_result_type _result,
                                     G_GNUC_UNUSED size_t _count,
-                                    G_GNUC_UNUSED const AprilToken* _tokens)
+                                    G_GNUC_UNUSED const struct asr_token* _tokens)
 {
     // do nothing with result, we don't need it
 }
@@ -77,16 +77,10 @@ static gboolean benchmark_finish(gpointer userdata){
 static void *run_benchmark_thread(void *userdata) {
     LiveCaptionsWelcome *self = userdata;
 
-    AprilASRModel model = asr_thread_get_model(self->application->asr);
+    struct asr_model *model = asr_thread_get_model(self->application->asr);
     g_assert(model != NULL);
 
-    AprilConfig config = {
-        .handler = benchmark_dummy_handler,
-        .userdata = NULL,
-        .flags = APRIL_CONFIG_FLAG_ZERO_BIT
-    };
-
-    AprilASRSession session = aas_create_session(model, config);
+    struct asr_session *session = asr_session_create(model, false, benchmark_dummy_handler, NULL);
     g_assert(session != NULL);
 
     short noise_data[48000];
@@ -94,7 +88,7 @@ static void *run_benchmark_thread(void *userdata) {
         noise_data[i] = rand();
     }
 
-    size_t sr = aam_get_sample_rate(model);
+    size_t sr = asr_model_sample_rate(model);
     g_assert(sr < 48000);
 
     uint64_t begin = get_time_us();
@@ -102,7 +96,7 @@ static void *run_benchmark_thread(void *userdata) {
 
     int idx = 0;
     for(int sec=0; sec<30; sec++){
-        aas_feed_pcm16(session, &noise_data[idx], sr);
+        asr_session_feed_pcm16(session, &noise_data[idx], sr);
 
         idx = (idx + sr) % 48000;
         self->benchmark_progress_v = ((double)sec) / 30.0;
@@ -127,7 +121,7 @@ static void *run_benchmark_thread(void *userdata) {
     self->benchmark_result_v = speed;
 
 end:
-    aas_free(session);
+    asr_session_free(session);
 
     g_idle_add(benchmark_finish, self);
 

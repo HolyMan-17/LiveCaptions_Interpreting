@@ -23,7 +23,6 @@
 #include <glib/gi18n.h>
 #include <stdio.h>
 #include <adwaita.h>
-#include <april_api.h>
 
 #include "livecaptions-config.h"
 #include "livecaptions-application.h"
@@ -32,8 +31,6 @@
 #include "common.h"
 
 int main (int argc, char *argv[]) {
-    aam_api_init(APRIL_VERSION);
-
 #ifdef LIVE_CAPTIONS_PIPEWIRE
     pw_init(&argc, &argv);
 
@@ -43,11 +40,8 @@ int main (int argc, char *argv[]) {
                         pw_get_library_version());
 #endif
 
-    GSettings *settings = g_settings_new("net.sapples.LiveCaptions");
-    char *active_model = g_settings_get_string(settings, "active-model");
-    if(active_model == NULL) active_model = GET_MODEL_PATH();
+    asr_thread asr = create_asr_thread();
 
-    asr_thread asr = create_asr_thread(active_model);
     if(asr == NULL){
         printf("Loading model failed!\n");
         // Show GUI error?

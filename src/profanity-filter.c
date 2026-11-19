@@ -56,7 +56,7 @@ typedef enum WordState {
     WORD_MATCHED = 2
 } WordState;
 
-size_t get_filter_skip(const AprilToken *tokens, size_t curr_idx, size_t count, FilterMode mode) {
+size_t get_filter_skip(const struct asr_token *tokens, size_t curr_idx, size_t count, FilterMode mode) {
     if(mode <= FILTER_NONE) return 0;
 
     WordState is_match[NUM_CURSE_WORDS] = { 0 };
@@ -66,7 +66,7 @@ size_t get_filter_skip(const AprilToken *tokens, size_t curr_idx, size_t count, 
     bool matched_badword = false;
     bool still_scanning_any = true;
     for(size_t i=curr_idx; i<count; i++){
-        if((i > curr_idx) && (tokens[i].flags & APRIL_TOKEN_FLAG_WORD_BOUNDARY_BIT)) {
+        if((i > curr_idx) && (tokens[i].flags & ASR_TOKEN_FLAG_WORD_BOUNDARY)) {
             // Once we've arrived at the next word, stop looking.
             // we only want to filter the word starting at curr_idx
             break;
@@ -77,11 +77,11 @@ size_t get_filter_skip(const AprilToken *tokens, size_t curr_idx, size_t count, 
         if(matched_badword) continue;
 
         still_scanning_any = false;
-        size_t token_len = strlen(tokens[i].token);
+        size_t token_len = strlen(tokens[i].text);
         for(size_t c=0; c<token_len; c++){
             if(curr_character >= MAX_CURSE_WORD_LENGTH) break;
 
-            if((c == 0) && (tokens[i].token[c] == ' ')) continue;
+            if((c == 0) && (tokens[i].text[c] == ' ')) continue;
 
             for(size_t j=0; j<NUM_CURSE_WORDS; j++){
                 const char *rule = curse_words[j];
@@ -90,7 +90,7 @@ size_t get_filter_skip(const AprilToken *tokens, size_t curr_idx, size_t count, 
                 if(is_match[j] == WORD_STILL_SCANNING) {
                     still_scanning_any = true;
 
-                    if(rule[curr_character] != tokens[i].token[c]) {
+                    if(rule[curr_character] != tokens[i].text[c]) {
                         is_match[j] = WORD_NON_MATCHING;
                         continue;
                     }
@@ -101,7 +101,7 @@ size_t get_filter_skip(const AprilToken *tokens, size_t curr_idx, size_t count, 
                         break;
                     }else if(rule[curr_character + 1] == '\0') {
                         // if doesn't end in *, must be the end of word to match
-                        if(((i + 1) >= count) || (tokens[i + 1].flags & APRIL_TOKEN_FLAG_WORD_BOUNDARY_BIT)) {
+                        if(((i + 1) >= count) || (tokens[i + 1].flags & ASR_TOKEN_FLAG_WORD_BOUNDARY)) {
                             is_match[j] = WORD_MATCHED;
                             matched_badword = true;
                             break;
@@ -129,10 +129,10 @@ size_t get_filter_skip_history(const struct history_token *tokens,
                                size_t count,
                                FilterMode mode)
 {
-    // Construct a list of AprilToken * and copy data
-    AprilToken *a_tokens = calloc(sizeof(AprilToken), count);
+    // Construct a list of asr_token and copy data
+    struct asr_token *a_tokens = calloc(count, sizeof(struct asr_token));
     for(size_t i=0; i<count; i++){
-        a_tokens[i].token   = &tokens[i].token[0];
+        a_tokens[i].text    = &tokens[i].token[0];
         a_tokens[i].flags   = tokens[i].flags;
         a_tokens[i].logprob = tokens[i].logprob;
     }
